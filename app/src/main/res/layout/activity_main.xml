@@ -91,15 +91,29 @@
             android:layout_height="wrap_content"
             android:text="counter is : "
             style="@style/text_view_style"/>
+        <TextView
+            android:id="@+id/angle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            style="@style/text_view_style"
+            android:text="angle"/>
     </LinearLayout>
 
     <ImageView
         android:id="@+id/image_view"
         style="@style/text_view_style"
-        android:layout_width="50dp"
-        android:layout_height="50dp"
+        android:layout_width="100dp"
+        android:layout_height="100dp"
         app:layout_constraintRight_toRightOf="parent"
         app:layout_constraintLeft_toLeftOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintTop_toTopOf="parent"/>
+
+    <com.jjoe64.graphview.GraphView
+        android:id="@+id/graph"
+        android:layout_width="300dp"
+        android:layout_height="150dp"
+        app:layout_constraintRight_toRightOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        tools:ignore="InvalidId" />
 </android.support.constraint.ConstraintLayout>

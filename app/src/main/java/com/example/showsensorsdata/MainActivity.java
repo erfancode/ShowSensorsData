@@ -13,19 +13,19 @@ import android.hardware.SensorManager;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
-import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
 import android.os.Looper;
+import android.support.annotation.RequiresApi;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
-import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.TextView;
 
@@ -36,7 +36,16 @@ import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.tasks.OnSuccessListener;
+import com.jjoe64.graphview.GraphView;
+import com.jjoe64.graphview.series.DataPoint;
+import com.jjoe64.graphview.series.LineGraphSeries;
 
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.PrintWriter;
 import java.util.List;
 
 import butterknife.BindView;
@@ -66,11 +75,16 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     TextView distance;
     @BindView(R.id.counter)
     TextView counter;
+    @BindView(R.id.angle)
+    TextView angle;
     @BindView(R.id.surface_view)
     SurfaceView surfaceView;
     @BindView(R.id.image_view)
     ImageView imageView;
+    @BindView(R.id.graph)
+    GraphView graphView;
 
+    String out = null;
     int locationCounter = 0;
     private float[] compass = {0, 0, 0};
     private float[] gyroscope = {0, 0, 0};
@@ -81,6 +95,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private float[] rotation = new float[9];
     private float[] orientation = new float[3];
     private float[] smoothhed = new float[3];
+    float normalVector[] = new float[3];
     private SensorManager sensorManager;
     private Sensor compassSensor;
     private Sensor gyroscopeSensor;
@@ -88,14 +103,24 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private GeomagneticField geomagneticField;
     private FusedLocationProviderClient mFusedLocationClient;
     private LocationRequest mLocationRequest;
-    private LatLng baseLocation = new LatLng(35.719274, 51.387662);
+    private LatLng baseLocation = new LatLng(35.719001, 51.387735);
     private double bearing = 0;
-    private static final int COMPASS = Sensor.TYPE_MAGNETIC_FIELD;
-    private static final int GYROSCOPE = Sensor.TYPE_ACCELEROMETER;
+    private static final int COMPASS = Sensor.TYPE_ACCELEROMETER;
+    private static final int GYROSCOPE = Sensor.TYPE_MAGNETIC_FIELD;
 
+
+
+    File root = android.os.Environment.getExternalStorageDirectory();
+    File dir = new File (root.getAbsolutePath() + "/download");
+    File file ;
+    FileOutputStream f = null;
+    PrintWriter pw = null;
 
     Camera camera;
     SurfaceHolder surfaceHolder;
+
+    int graphConter = 0;
+    LineGraphSeries<DataPoint> series = new LineGraphSeries();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -109,6 +134,15 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         surfaceHolder.addCallback(this);
         location.setLatitude(35.719506);
         location.setLongitude(51.386812);
+        dir.mkdirs();
+        file = new File(dir, "myData.txt");
+
+        try {
+            f = new FileOutputStream(file);
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+        pw = new PrintWriter(f);
         mFusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             // TODO: Consider calling
@@ -171,6 +205,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     }
 
+    @RequiresApi(api = Build.VERSION_CODES.KITKAT)
     @SuppressLint("MissingPermission")
     @Override
     protected void onStart() {
@@ -179,8 +214,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         compassSensor = sensorManager.getDefaultSensor(COMPASS);
         gyroscopeSensor = sensorManager.getDefaultSensor(GYROSCOPE);
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
-        sensorManager.registerListener(this, compassSensor, SensorManager.SENSOR_DELAY_FASTEST);
-        sensorManager.registerListener(this, gyroscopeSensor, SensorManager.SENSOR_DELAY_FASTEST);
+        sensorManager.registerListener(this, compassSensor, SensorManager.SENSOR_DELAY_NORMAL);
+        sensorManager.registerListener(this, gyroscopeSensor, SensorManager.SENSOR_DELAY_NORMAL);
         locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, LOCATION_MIN_TIME, 3, new LocationListener() {
             @Override
             public void onLocationChanged(Location location) {
@@ -239,12 +274,16 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     public void onSensorChanged(SensorEvent sensorEvent)
     {
         boolean compassOrGyr = false;
+
         if(sensorEvent.sensor.getType() == COMPASS)
         {
-            smoothhed = lowPass(sensorEvent.values, compass);
-            compass[0] = smoothhed[0];
-            compass[1] = smoothhed[1];
-            compass[2] = smoothhed[2];
+            //smoothhed = lowPass(sensorEvent.values, compass);
+            compass[0] = sensorEvent.values[0];
+            compass[1] = sensorEvent.values[1];
+            compass[2] = sensorEvent.values[2];
+
+            //series.appendData(new DataPoint(graphConter++, compass[0]), false,200000);
+            //graphView.addSeries(series);
             compassOrGyr = true;
         }
         else if(sensorEvent.sensor.getType() == GYROSCOPE)
@@ -253,23 +292,76 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             gyroscope[0] = smoothhed[0];
             gyroscope[1] = smoothhed[1];
             gyroscope[2] = smoothhed[2];
+
             compassOrGyr = true;
         }
-        SensorManager.getRotationMatrix(rotation, null, compass, gyroscope);
-        SensorManager.remapCoordinateSystem(rotation, SensorManager.AXIS_X, SensorManager.AXIS_MINUS_Z, rotation);
-        SensorManager.getOrientation(rotation, orientation);
+        out = String.valueOf(compass[0]) + "," + String.valueOf(compass[1]) + "," +String.valueOf(compass[2]) + "," ;
+        out += String.valueOf(gyroscope[0]) + "," + String.valueOf(gyroscope[1]) + "," +String.valueOf(gyroscope[2]) + "," ;
+
+        float I[] = new float[9];
+        SensorManager.getRotationMatrix(rotation, I,compass, gyroscope);
+        //SensorManager.remapCoordinateSystem(rotation, SensorManager.AXIS_X, SensorManager.AXIS_MINUS_Z, rotation);
+        //SensorManager.getOrientation(rotation, orientation);
         float[] results = new float[3];
         SensorManager.getOrientation(rotation, results);
+        /*for(int i = 0; i < 3;i++)
+        {
+            compass[i] = results[i] * 100;
+        }*/
+        azimuth[0] = results[0];
+        azimuth[1] = results[1];
+        azimuth[2] = results[2];
+        double z[] = new double[3];
+        z[0] = (int)(Math.toDegrees(results[0]));
 
-        azimuth[0] = (float)(((results[0]*180)/Math.PI)+180);
-        azimuth[1] = (float)(((results[1]*180/Math.PI))+90);
-        azimuth[2] = (float)(((results[2]*180/Math.PI)));
+        z[1] = (int)Math.toDegrees(results[1]) ;
+
+        z[2] = (int)Math.toDegrees(results[2]);
+        /*if (results[0] < 0) {
+            z[0] += 360;
+            results[0] += 2 * Math.PI;
+        }
+        if (results[1] < 0) {
+            z[1] += 180;
+            results[1] += Math.PI;
+        }*/
+        //if (results[2] < 0)
+        //    results[2] += 2 * Math.PI;
+
+
+        normalVector[0] = (float) (Math.sin(results[1]) * Math.cos(results[0])) * -1;
+        normalVector[1] = (float) (Math.sin(results[2]) * Math.cos(results[0])) ;
+        normalVector[2] = (float) (Math.cos(results[1]) * Math.cos(results[2]));
+        out += String.valueOf(normalVector[0]) + "," + String.valueOf(normalVector[1]) + "," +String.valueOf(normalVector[2]) + "\n" ;
+        Log.d(TAG,z[0] + " " + z[1] + " " + z[2] + "\n\t\t\t\t" + normalVector[0] + " " + normalVector[1] + " " + normalVector[2]);
         Location base = new Location("");
         base.setLatitude(MainActivity.this.baseLocation.latitude);
         base.setLongitude(MainActivity.this.baseLocation.longitude);
         double dis = getDistance(base, location) * 1000;
         distance.setText(String.valueOf(dis));
-        if(dis > 10)
+
+
+        //pw.println(out);
+        //pw.flush();
+
+        float locationVector[] =  getVectorTwoPoint(location, base);
+        float x = dotProduct(normalVector, locationVector);
+
+        /*if(dis > 50)
+        {
+            imageView.setVisibility(View.GONE);
+        }
+        else
+        {
+            ViewGroup.LayoutParams params = (ViewGroup.LayoutParams) imageView.getLayoutParams();
+            params.width = ((dis < 5) ? 200 : (int)(200 * 5 / dis));
+            params.height = ((dis < 5) ? 200 : (int)(200 * 5 / dis));
+            imageView.setLayoutParams(params);
+            imageView.setVisibility(View.VISIBLE);
+        }*/
+        float anglex = (float) Math.toDegrees(Math.acos(x));
+        angle.setText(String.valueOf(anglex));
+        if(anglex > 20 | anglex < -20)
         {
             imageView.setVisibility(View.GONE);
         }
@@ -278,9 +370,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             imageView.setVisibility(View.VISIBLE);
         }
 
-        imageView.setRotationX(9 * gyroscope[1]);
+        /*imageView.setRotationX(9 * gyroscope[1]);
         imageView.setRotationY(9 * gyroscope[0]);
-        imageView.setRotation(9 * gyroscope[2]);
+        imageView.setRotation(9 * gyroscope[2]);*/
         bearing = orientation[0];
         bearing = Math.toDegrees(bearing);
         if(geomagneticField != null)
@@ -338,15 +430,15 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     void update()
     {
-        Log.d(TAG, "on Run...");
+        //Log.d(TAG, "on Run...");
         if (location != null) {
             latitude.setText(String.valueOf(location.getLatitude()));
             longitude.setText(String.valueOf(location.getLongitude()));
         }
 
-        xCompass.setText(String.valueOf(compass[0]));
-        yCompass.setText(String.valueOf(compass[1]));
-        zCompass.setText(String.valueOf(compass[2]));
+        xCompass.setText(String.valueOf(normalVector[0] ));
+        yCompass.setText(String.valueOf(normalVector[1] ));
+        zCompass.setText(String.valueOf(normalVector[2] ));
 
         xGyroscope.setText(String.valueOf(gyroscope[0]));
         yGyroscope.setText(String.valueOf(gyroscope[1]));
@@ -399,5 +491,41 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     @Override
     public void surfaceDestroyed(SurfaceHolder surfaceHolder) {
 
+    }
+
+    private float[] getVectorTwoPoint(Location l1, Location l2)
+    {
+        float resulte[] = new float[3];
+        double length = Math.sqrt((l1.getLatitude() - l2.getLatitude()) * (l1.getLatitude() - l2.getLatitude())
+                                + (l1.getLongitude() - l2.getLongitude()) * (l1.getLongitude() - l2.getLongitude()));
+
+        resulte[0] = 0;
+        resulte[1] = (float) ((l1.getLatitude() - l2.getLatitude()) / length);
+        resulte[2] = (float) ((l1.getLongitude() - l2.getLongitude()) / length);
+        return resulte;
+    }
+    float dotProduct(float vect_A[], float vect_B[])
+    {
+
+        float product = 0;
+
+        // Loop for calculate cot product
+        for (int i = 0; i < 3; i++)
+            product = product + vect_A[i] * vect_B[i];
+        double length1 = Math.sqrt(Math.pow(vect_A[0] ,2) + Math.pow(vect_A[1] ,2) + Math.pow(vect_A[2] ,2));
+        double length2 = Math.sqrt(Math.pow(vect_B[0] ,2) + Math.pow(vect_B[1] ,2) + Math.pow(vect_B[2] ,2));
+       // Log.d(TAG , "length is : " + length1 +  " , " + length2);
+        return (float) (product /( length1 * length2)) ;
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        pw.close();
+        try {
+            f.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 }
